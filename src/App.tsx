@@ -267,7 +267,7 @@ export default function App() {
             <div className="flex items-center gap-3 bg-slate-900/60 border border-slate-800 px-3 py-1.5 rounded-xl text-[11px] text-slate-400 font-mono">
               <div className="flex items-center gap-1.5">
                 <span className={`inline-block w-2 h-2 rounded-full ${geminiActive ? "bg-emerald-400 animate-pulse" : "bg-amber-500"}`} />
-                <span>Gemini Inteligente: <strong>{geminiActive ? "Online" : "Demo local"}</strong></span>
+               
               </div>
               <span className="text-slate-800">|</span>
               <div>
