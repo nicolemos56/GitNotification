@@ -72,7 +72,6 @@ A aplicação estará disponível em `http://localhost:3000`.
 
 ---
 
-## 📋 Licença e Direitos
+##  Licença e Direitos
 
-Projeto desenvolvido com foco em alta eficiência, UI moderna para o ecossistema Open Source e integrado com a inteligência do Gemini AI Core.
-© 2026 GitNotification. Todos os direitos reservados.
+© 2026 GitNotification. Todos os direitos reservados. D´DEUS´DEUS - DDD.
