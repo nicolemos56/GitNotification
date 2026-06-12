@@ -1,0 +1,930 @@
+/**
+ * @license
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+import express from "express";
+import path from "path";
+import fs from "fs";
+import { createServer as createViteServer } from "vite";
+import { GoogleGenAI } from "@google/genai";
+import dotenv from "dotenv";
+
+// Load environment variables
+dotenv.config();
+
+const app = express();
+const PORT = process.env.PORT ? parseInt(process.env.PORT) : 3000;
+
+app.use(express.json());
+
+// Initialize Gemini SDK with dynamic lazy loader
+let aiInstance: GoogleGenAI | null = null;
+
+function getGeminiClient(): GoogleGenAI | null {
+  if (aiInstance) return aiInstance;
+
+  let apiKey = process.env.GEMINI_API_KEY;
+
+  // Extract from .env if possible
+  const envPath = path.join(process.cwd(), ".env");
+  if ((!apiKey || apiKey === "MY_GEMINI_API_KEY") && fs.existsSync(envPath)) {
+    try {
+      const envContent = fs.readFileSync(envPath, "utf-8");
+      const match = envContent.match(/GEMINI_API_KEY\s*=\s*(["']?)(.*?)\1/);
+      if (match && match[2] && match[2] !== "MY_GEMINI_API_KEY" && match[2].trim()) {
+        apiKey = match[2].trim();
+      }
+    } catch (e) {
+      console.error("Error reading .env inside getGeminiClient:", e);
+    }
+  }
+
+  // Extract from .env.example as placeholder / fallback
+  const examplePath = path.join(process.cwd(), ".env.example");
+  if ((!apiKey || apiKey === "MY_GEMINI_API_KEY") && fs.existsSync(examplePath)) {
+    try {
+      const exampleContent = fs.readFileSync(examplePath, "utf-8");
+      const match = exampleContent.match(/GEMINI_API_KEY\s*=\s*(["']?)(.*?)\1/);
+      if (match && match[2] && match[2] !== "MY_GEMINI_API_KEY" && match[2].trim()) {
+        apiKey = match[2].trim();
+      }
+    } catch (e) {
+      console.error("Error reading .env.example inside getGeminiClient:", e);
+    }
+  }
+
+  if (apiKey && apiKey !== "MY_GEMINI_API_KEY" && apiKey.trim().length > 10) {
+    try {
+      aiInstance = new GoogleGenAI({
+        apiKey: apiKey.trim(),
+        httpOptions: {
+          headers: {
+            'User-Agent': 'aistudio-build',
+          }
+        }
+      });
+      console.log("Gemini SDK lazy-initialized successfully.");
+      return aiInstance;
+    } catch (err) {
+      console.error("Error initializing Gemini SDK:", err);
+    }
+  }
+
+  return null;
+}
+
+// Database JSON model
+const DB_FILE = path.join(process.cwd(), "gitpulse_db.json");
+
+interface DatabaseSchema {
+  github_config: {
+    owner_username: string;
+    personal_token: string;
+    sync_last_date: string | null;
+  };
+  monitored_users: Array<{
+    github_username: string;
+    avatar_url?: string;
+    added_at: string;
+  }>;
+  processed_repositories: Array<{
+    id: number;
+    repo_id: number;
+    repo_name: string;
+    owner_username: string;
+    html_url: string;
+    detected_at: string;
+    ai_summary: string | null;
+    tech_stack: string | null;
+    notification_sent: boolean;
+    channel_used: "Telegram" | "WhatsApp" | "Local Feed";
+  }>;
+  telegram_config: {
+    bot_token: string;
+    chat_id: string;
+    is_enabled: boolean;
+  };
+  whatsapp_config: {
+    twilio_sid: string;
+    twilio_token: string;
+    phone_from: string;
+    phone_to: string;
+    is_enabled: boolean;
+  };
+  logs: Array<{
+    timestamp: string;
+    level: "info" | "success" | "warn" | "error" | "ai";
+    message: string;
+  }>;
+  system_status: {
+    is_automation_active: boolean;
+    last_poll: string | null;
+    polls_count: number;
+  };
+}
+
+const defaultDb: DatabaseSchema = {
+  github_config: {
+    owner_username: "manueldeDeusdev56",
+    personal_token: "",
+    sync_last_date: new Date().toISOString()
+  },
+  monitored_users: [
+    {
+      github_username: "nicolemos56",
+      avatar_url: "https://avatars.githubusercontent.com/u/129528741?v=4",
+      added_at: new Date().toISOString()
+    },
+    {
+      github_username: "torvalds",
+      avatar_url: "https://avatars.githubusercontent.com/u/1024025?v=4",
+      added_at: new Date().toISOString()
+    }
+  ],
+  processed_repositories: [],
+  telegram_config: {
+    bot_token: "8607073819:AAGQbBUXSDHQlXeMSLpPgcWRpeW_QRGRMFY",
+    chat_id: "7641677194",
+    is_enabled: true
+  },
+  whatsapp_config: {
+    twilio_sid: "",
+    twilio_token: "",
+    phone_from: "",
+    phone_to: "",
+    is_enabled: false
+  },
+  logs: [
+    { timestamp: new Date().toISOString(), level: "info", message: "Radar de automação GitNotification iniciado para o usuário manueldeDeusdev56." }
+  ],
+  system_status: {
+    is_automation_active: true,
+    last_poll: null,
+    polls_count: 0
+  }
+};
+
+function readDb(): DatabaseSchema {
+  try {
+    if (!fs.existsSync(DB_FILE)) {
+      const seedDb = JSON.parse(JSON.stringify(defaultDb));
+      fs.writeFileSync(DB_FILE, JSON.stringify(seedDb, null, 2));
+      return seedDb;
+    }
+    const data = fs.readFileSync(DB_FILE, "utf-8");
+    const parsed = JSON.parse(data);
+
+    // Deep robust fallback integration to prevent any 'undefined' property access crashes
+    return {
+      github_config: { ...defaultDb.github_config, ...(parsed.github_config || {}) },
+      monitored_users: parsed.monitored_users || [],
+      processed_repositories: parsed.processed_repositories || [],
+      telegram_config: { ...defaultDb.telegram_config, ...(parsed.telegram_config || {}) },
+      whatsapp_config: { ...defaultDb.whatsapp_config, ...(parsed.whatsapp_config || {}) },
+      logs: parsed.logs || [],
+      system_status: { ...defaultDb.system_status, ...(parsed.system_status || {}) }
+    };
+  } catch (err) {
+    console.error("Error reading db schema:", err);
+    return JSON.parse(JSON.stringify(defaultDb));
+  }
+}
+
+function writeDb(db: DatabaseSchema) {
+  try {
+    fs.writeFileSync(DB_FILE, JSON.stringify(db, null, 2));
+  } catch (err) {
+    console.error("Error writing db schema:", err);
+  }
+}
+
+function addLog(level: "info" | "success" | "warn" | "error" | "ai", message: string) {
+  const db = readDb();
+  db.logs.unshift({
+    timestamp: new Date().toISOString(),
+    level,
+    message
+  });
+  if (db.logs.length > 50) {
+    db.logs = db.logs.slice(0, 50);
+  }
+  writeDb(db);
+}
+
+// GitHub API Fetcher using custom personal token if defined
+async function fetchGithub(url: string, personal_token?: string) {
+  const headers: HeadersInit = {
+    "Accept": "application/vnd.github.v3+json",
+    "User-Agent": "GitNotification-Simple-Automator"
+  };
+  
+  const tokenToUse = personal_token || process.env.GITHUB_TOKEN;
+  if (tokenToUse) {
+    headers["Authorization"] = `Bearer ${tokenToUse}`;
+  }
+
+  const response = await fetch(url, { headers });
+  if (!response.ok) {
+    throw new Error(`GitHub API returned state ${response.status}: ${response.statusText}`);
+  }
+  return response.json();
+}
+
+/**
+ * AI Summarizer
+ */
+async function generateAiSummary(
+  repoName: string,
+  owner: string,
+  readme: string,
+  personalToken?: string,
+  mockFiles?: any[],
+  mockMetadata?: any
+): Promise<{ summary: string; tech: string }> {
+  // Check if readme is empty, extremely short, or only contains the repository name (raw placeholder headings)
+  const normalizedReadme = (readme || "")
+    .replace(/[#\s\-*_]/g, "")
+    .toLowerCase()
+    .trim();
+  const normalizedRepoName = repoName.replace(/[#\s\-*_]/g, "").toLowerCase().trim();
+
+  const isMinimalReadme = !readme || 
+    readme.trim().length === 0 || 
+    normalizedReadme === normalizedRepoName ||
+    readme.trim().length < 40;
+
+  let sourceOfSummary: "readme" | "files" | "metadata" = "readme";
+  let prompt = "";
+  let filesListStr = "";
+  let repoMetadataStr = "";
+
+  const db = readDb();
+  const tokenToUse = personalToken || db?.github_config?.personal_token || process.env.GITHUB_TOKEN;
+
+  // Flow: Deciding if we read the README, search repository files list, or check repository metadata
+  if (isMinimalReadme) {
+    if (mockFiles && mockFiles.length > 0) {
+      sourceOfSummary = "files";
+      filesListStr = mockFiles.map((f: any) => `- ${f.name} (${f.type === "dir" ? "directório" : "ficheiro"}, tamanho: ${f.size || 0} bytes)`).join("\n");
+    } else {
+      try {
+        // Try to fetch real files from root contents of GitHub Repository
+        const repoContents = await fetchGithub(`https://api.github.com/repos/${owner}/${repoName}/contents`, tokenToUse);
+        if (Array.isArray(repoContents) && repoContents.length > 0) {
+          const otherFiles = repoContents.filter((f: any) => f.name.toLowerCase() !== "readme.md");
+          if (otherFiles.length > 0) {
+            sourceOfSummary = "files";
+            filesListStr = otherFiles.map((f: any) => `- ${f.name} (${f.type === "dir" ? "directório" : "ficheiro"}, tamanho: ${f.size || 0} bytes)`).join("\n");
+          }
+        }
+      } catch (err: any) {
+        console.warn(`Could not fetch root contents for ${owner}/${repoName}: ${err.message}`);
+      }
+    }
+
+    if (sourceOfSummary !== "files") {
+      if (mockMetadata) {
+        sourceOfSummary = "metadata";
+        repoMetadataStr = JSON.stringify(mockMetadata, null, 2);
+      } else {
+        try {
+          // Fetch GitHub Repo metadata
+          const metadata = await fetchGithub(`https://api.github.com/repos/${owner}/${repoName}`, tokenToUse);
+          if (metadata) {
+            sourceOfSummary = "metadata";
+            repoMetadataStr = JSON.stringify({
+              description: metadata.description || "Sem descrição pública no GitHub.",
+              language: metadata.language || "Indeterminada / Não detetada",
+              topics: metadata.topics || [],
+              size_kb: metadata.size || 0,
+              fork: metadata.fork,
+              homepage: metadata.homepage || "Nenhuma",
+              created_at: metadata.created_at,
+              updated_at: metadata.updated_at
+            }, null, 2);
+          }
+        } catch (err: any) {
+          console.warn(`Could not fetch repository metadata for ${owner}/${repoName}: ${err.message}`);
+        }
+      }
+    }
+  }
+
+  // Construct precise summary prompts based on determined source of truth
+  if (sourceOfSummary === "readme") {
+    prompt = `Analisa este repositório recém-criado: '${repoName}' de '${owner}'.
+Readme do código: ${readme ? readme.substring(0, 1500) : "Nenhum Readme público disponível."}
+
+Gera um resumo técnico estrito neste formato simples:
+- **Objetivo Principal**: (1 frase concisa do que o projeto faz com base no Readme)
+- **Stack Tecnológica**: (Lista de tecnologias principais separadas por vírgulas, ex. React, TypeScript, Node.js)
+- **Caso de Uso Útil**: (Onde este projeto pode ser de utilidade prática)`;
+  } else if (sourceOfSummary === "files") {
+    prompt = `Analisa este repositório recém-criado '${repoName}' de '${owner}'.
+O README do repositório está em falta ou vazio, mas os seguintes ficheiros e directórios foram detetados na sua raiz:
+${filesListStr}
+
+Gera um resumo técnico rigoroso deduzindo o propósito do projecto e a sua tecnologia através da sua estrutura:
+- **Objetivo Principal**: (Deduza e apresente 1 frase concisa de qual parece ser o objetivo de desenvolvimento deste repositório com base unicamente na estrutura de ficheiros. Mencione explicitamente que analisou a estrutura do repositório porque o README está vazio)
+- **Stack Tecnológica**: (Deduza as tecnologias prováveis mais ligadas aos ficheiros detetados, ex. se houver package.json coloque Node.js/TypeScript, ou de acordo com a extensão)
+- **Caso de Uso Útil**: (Caso de uso prático provável para este repositório de acordo com a sua estrutura)`;
+  } else {
+    // sourceOfSummary === "metadata"
+    prompt = `Analisa este repositório recém-criado: '${repoName}' de '${owner}'.
+Este repositório está totalmente vazio ou é apenas um rascunho de sandbox sem ficheiros adicionais nem README detalhado.
+Metadados estendidos do GitHub:
+${repoMetadataStr || "Nenhum metadado detalhado e nenhum ficheiro pôde ser carregado."}
+
+Por favor, gera o seguinte resumo de estado honestamente, sem inventar funcionalidades falsas:
+- **Objetivo Principal**: (1 frase concisa explicando o estado atual do repositório. Sê totalmente honesto: refere que é um repositório vazio, inicial ou de testes/sandbox, indicando a linguagem inicial caso esteja nos metadados)
+- **Stack Tecnológica**: (Lista a linguagem principal detetada, ou 'Repositório Vazio/Indeterminada' se não houver código)
+- **Caso de Uso Útil**: (Apenas experimentação local de controle de versão ou espaço reservado para desenvolvimento futuro de '${repoName}')`;
+  }
+
+  const aiClient = getGeminiClient();
+  if (aiClient) {
+    try {
+      const response = await aiClient.models.generateContent({
+        model: "gemini-3.5-flash",
+        contents: prompt,
+        config: { temperature: 0.1 }
+      });
+      const text = response.text || "";
+      
+      let tech = "TypeScript, Node.js";
+      if (sourceOfSummary === "metadata") {
+        tech = "Repositório Vazio / Inicial";
+      } else {
+        const stackMatch = text.match(/(?:Stack Tecnológica|Tech Stack):\*\*?\s*([^\n]+)/i) || text.match(/(?:Stack Tecnológica|Tech Stack):\s*([^\n]+)/i);
+        if (stackMatch && stackMatch[1]) {
+          tech = stackMatch[1].replace(/[*-]/g, "").trim();
+        }
+      }
+      return { summary: text, tech };
+    } catch (err: any) {
+      console.error("Gemini analysis failed, using local logic fallback...", err);
+    }
+  }
+
+  // Fallback engine
+  let tech = "Node.js, TypeScript";
+  if (sourceOfSummary === "files") {
+    const lowerFiles = filesListStr.toLowerCase();
+    if (lowerFiles.includes("package.json") || lowerFiles.includes("tsconfig.json")) {
+      tech = "Node.js, TypeScript";
+    } else if (lowerFiles.includes("requirements.txt") || lowerFiles.includes("main.py") || lowerFiles.includes("setup.py")) {
+      tech = "Python";
+    } else if (lowerFiles.includes("go.mod") || lowerFiles.includes("main.go")) {
+      tech = "Go Lang";
+    } else if (lowerFiles.includes("cargo.toml")) {
+      tech = "Rust Code";
+    } else {
+      tech = "Ficheiros Estruturados Diversos";
+    }
+
+    const summary = `- **Objetivo Principal**: Detetado com base na estrutura de pastas (README ausente). Parece ser um repositório estruturado para desenvolvimento.
+- **Stack Tecnológica**: ${tech}
+- **Caso de Uso Útil**: Desenvolvimento contínuo com base na sua configuração de diretórios existente.`;
+    return { summary, tech };
+  } else if (sourceOfSummary === "metadata") {
+    tech = "Repositório Vazio / Sem Ficheiros";
+    const summary = `- **Objetivo Principal**: Repositório de rascunho em estado inicial de configuração, sem README nem ficheiros associados.
+- **Stack Tecnológica**: ${tech}
+- **Caso de Uso Útil**: Sandbox para testes git ou espaço reservado para futura implementação de código para '${repoName}'.`;
+    return { summary, tech };
+  } else {
+    const nameLower = repoName.toLowerCase();
+    if (nameLower.includes("react") || nameLower.includes("vue") || nameLower.includes("angular") || nameLower.endsWith(".io") || nameLower.includes("page")) {
+      tech = "React, Tailwind, TypeScript";
+    } else if (nameLower.includes("python") || nameLower.includes("ai") || nameLower.includes("ml") || nameLower.includes("model")) {
+      tech = "Python, PyTorch, Jupyter";
+    } else if (nameLower.includes("docker") || nameLower.includes("infra") || nameLower.includes("kube")) {
+      tech = "Docker, Go, Bash";
+    }
+
+    const summary = `- **Objetivo Principal**: Código fonte focado em desenvolvimento de soluções técnicas para o projeto '${repoName}'.
+- **Stack Tecnológica**: ${tech}
+- **Caso de Uso Útil**: Referência e infraestrutura inicial de desenvolvimento público para a comunidade Open Source.`;
+    return { summary, tech };
+  }
+}
+
+/**
+ * Message senders
+ */
+async function sendTelegramAlert(botToken: string, chatId: string, text: string): Promise<boolean> {
+  if (!botToken || !chatId) return false;
+  try {
+    const url = `https://api.telegram.org/bot${botToken}/sendMessage`;
+    const response = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        chat_id: chatId,
+        text: text,
+        parse_mode: "Markdown"
+      })
+    });
+    return response.ok;
+  } catch (e) {
+    return false;
+  }
+}
+
+async function sendTwilioWhatsApp(sid: string, token: string, from: string, to: string, text: string): Promise<boolean> {
+  if (!sid || !token || !from || !to) return false;
+  try {
+    // Standard Twilio SMS/WhatsApp REST API call
+    const cleanFrom = from.startsWith("whatsapp:") ? from : `whatsapp:${from}`;
+    const cleanTo = to.startsWith("whatsapp:") ? to : `whatsapp:${to}`;
+    
+    const url = `https://api.twilio.com/2010-04-01/Accounts/${sid}/Messages.json`;
+    const auth = Buffer.from(`${sid}:${token}`).toString("base64");
+    
+    const params = new URLSearchParams();
+    params.append("To", cleanTo);
+    params.append("From", cleanFrom);
+    params.append("Body", text);
+
+    const response = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Authorization": `Basic ${auth}`,
+        "Content-Type": "application/x-www-form-urlencoded"
+      },
+      body: params
+    });
+    return response.ok;
+  } catch (e) {
+    return false;
+  }
+}
+
+/**
+ * ----------------- API CONTROLLER -----------------
+ */
+
+app.get("/api/status", (req, res) => {
+  const db = readDb();
+  res.json({
+    github_config: db.github_config,
+    monitored_users_count: db.monitored_users.length,
+    telegram_config: db.telegram_config,
+    whatsapp_config: db.whatsapp_config,
+    logs: db.logs,
+    system_status: db.system_status,
+    gemini_active: getGeminiClient() !== null
+  });
+});
+
+app.get("/api/history", (req, res) => {
+  const db = readDb();
+  res.json(db.processed_repositories);
+});
+
+app.get("/api/monitored-list", (req, res) => {
+  const db = readDb();
+  res.json(db.monitored_users);
+});
+
+// Update configs
+app.post("/api/save-config", (req, res) => {
+  const { owner_username, personal_token, telegram, whatsapp } = req.body;
+  const db = readDb();
+
+  if (typeof owner_username === "string") {
+    db.github_config.owner_username = owner_username.trim();
+  }
+  if (typeof personal_token === "string") {
+    db.github_config.personal_token = personal_token.trim();
+  }
+
+  if (telegram) {
+    db.telegram_config = {
+      bot_token: typeof telegram.bot_token === "string" ? telegram.bot_token.trim() : db.telegram_config.bot_token,
+      chat_id: typeof telegram.chat_id === "string" ? telegram.chat_id.trim() : db.telegram_config.chat_id,
+      is_enabled: typeof telegram.is_enabled === "boolean" ? telegram.is_enabled : db.telegram_config.is_enabled
+    };
+  }
+
+  if (whatsapp) {
+    db.whatsapp_config = {
+      twilio_sid: typeof whatsapp.twilio_sid === "string" ? whatsapp.twilio_sid.trim() : db.whatsapp_config.twilio_sid,
+      twilio_token: typeof whatsapp.twilio_token === "string" ? whatsapp.twilio_token.trim() : db.whatsapp_config.twilio_token,
+      phone_from: typeof whatsapp.phone_from === "string" ? whatsapp.phone_from.trim() : db.whatsapp_config.phone_from,
+      phone_to: typeof whatsapp.phone_to === "string" ? whatsapp.phone_to.trim() : db.whatsapp_config.phone_to,
+      is_enabled: typeof whatsapp.is_enabled === "boolean" ? whatsapp.is_enabled : db.whatsapp_config.is_enabled
+    };
+  }
+
+  writeDb(db);
+  addLog("success", "Configurações de integração guardadas com sucesso.");
+  res.json({ success: true });
+});
+
+// Synchronize following list (The absolute core request: "monitore os eventos de quem ele segue")
+app.post("/api/sync-following", async (req, res) => {
+  const db = readDb();
+  const username = db.github_config.owner_username;
+  const token = db.github_config.personal_token;
+
+  if (!username) {
+    res.status(400).json({ error: "Defina o seu Usuário do GitHub antes de sincronizar" });
+    return;
+  }
+
+  try {
+    addLog("info", `A carregar desenvolvedores seguidos por @${username}...`);
+    // Fetch following developers with robust API rate-limit resilience
+    let following;
+    try {
+      following = await fetchGithub(`https://api.github.com/users/${username}/following?per_page=100`, token);
+    } catch (githubErr: any) {
+      console.warn(`Sync following failed on API: ${githubErr.message}`);
+      if (!token) {
+        addLog("warn", "Limite de IP do GitHub atingido para busca anónima. Carregada lista de demonstração resiliente com @nicolemos56 e pioneiros para prosseguir sem bloqueios.");
+        following = [
+          { login: "nicolemos56", avatar_url: "https://avatars.githubusercontent.com/u/129528741?v=4" },
+          { login: "torvalds", avatar_url: "https://avatars.githubusercontent.com/u/1024025?v=4" },
+          { login: "gaearon", avatar_url: "https://avatars.githubusercontent.com/u/810438?v=4" }
+        ];
+      } else {
+        throw new Error(`Erro de ligação ou limite excedido: ${githubErr.message}. Adicione um 'Token de Acesso' do GitHub para realizar buscas ilimitadas.`);
+      }
+    }
+    
+    if (Array.isArray(following)) {
+      // Exclude the owner itself from the synced list
+      const monitored = following
+        .filter((f: any) => f.login.toLowerCase() !== username.toLowerCase())
+        .map((f: any) => ({
+          github_username: f.login,
+          avatar_url: f.avatar_url,
+          added_at: new Date().toISOString()
+        }));
+
+      db.monitored_users = monitored;
+      db.github_config.sync_last_date = new Date().toISOString();
+      writeDb(db);
+
+      addLog("success", `Sincronizados com sucesso! ${monitored.length} perfis seguidos adicionados para rastreamento.`);
+      res.json({ success: true, count: monitored.length, users: monitored });
+    } else {
+      throw new Error("Resposta da API de Seguidores inesperada.");
+    }
+  } catch (err: any) {
+    addLog("error", `Falha ao carregar seguidos de @${username}: ${err.message}`);
+    res.status(500).json({ error: `Erro na API do GitHub: ${err.message}. Verifique o seu usuário or adicione alvos manually.` });
+  }
+});
+
+// Add developer manually to monitor list
+app.post("/api/add-monitored", async (req, res) => {
+  const { github_username } = req.body;
+  if (!github_username || !github_username.trim()) {
+    res.status(400).json({ error: "Nome de usuário inválido." });
+    return;
+  }
+  const db = readDb();
+  const usernameClean = github_username.trim();
+  const exists = db.monitored_users.some(u => u.github_username.toLowerCase() === usernameClean.toLowerCase());
+  if (exists) {
+    res.status(400).json({ error: `Desenvolvedor @${usernameClean} já está sob monitorização.` });
+    return;
+  }
+
+  const token = db.github_config.personal_token;
+  let avatar_url = `https://avatars.githubusercontent.com/u/9919?v=4`; // fallback avatar
+
+  try {
+    const profile = await fetchGithub(`https://api.github.com/users/${usernameClean}`, token);
+    if (profile && profile.avatar_url) {
+      avatar_url = profile.avatar_url;
+    }
+  } catch (err) {
+    console.warn(`Could not get profile avatar for ${usernameClean}`);
+  }
+
+  db.monitored_users.push({
+    github_username: usernameClean,
+    avatar_url: avatar_url,
+    added_at: new Date().toISOString()
+  });
+  writeDb(db);
+  addLog("success", `Desenvolvedor @${usernameClean} adicionado manualmente à monitorização.`);
+  res.json({ success: true, user: db.monitored_users[db.monitored_users.length - 1] });
+});
+
+// Remove developer manually from monitor list
+app.post("/api/remove-monitored", (req, res) => {
+  const { github_username } = req.body;
+  if (!github_username) {
+    res.status(400).json({ error: "Nome de usuário ausente." });
+    return;
+  }
+  const db = readDb();
+  const index = db.monitored_users.findIndex(u => u.github_username.toLowerCase() === github_username.trim().toLowerCase());
+  if (index === -1) {
+    res.status(404).json({ error: "Usuário não sob monitorização." });
+    return;
+  }
+  db.monitored_users.splice(index, 1);
+  writeDb(db);
+  addLog("info", `Removido @${github_username} da lista de monitorização.`);
+  res.json({ success: true });
+});
+
+// Main polling router to trigger scanning for newly published repos
+app.post("/api/poll-radar", async (req, res) => {
+  const db = readDb();
+  const owner = (db.github_config.owner_username || "").toLowerCase().trim();
+  
+  // Exclude the owner itself from targets list to never return the owner's own repository
+  let targets = (db.monitored_users || []).filter(
+    u => u.github_username.toLowerCase().trim() !== owner
+  );
+
+  if (targets.length === 0) {
+    if (owner) {
+      addLog("info", `Sem outros alvos sincronizados. Monitorizando a cota principal @${db.github_config.owner_username}...`);
+      targets = [{
+        github_username: db.github_config.owner_username,
+        added_at: new Date().toISOString()
+      }];
+    } else {
+      res.json({ success: true, found: 0, message: "Sem alvos de monitorização de momento. Defina um usuário or adicione perfis." });
+      return;
+    }
+  }
+
+  addLog("info", `A iniciar varredura em ${targets.length} alvos públicos...`);
+  
+  let newReposFound = 0;
+  const token = db.github_config.personal_token;
+
+  // For safety and rate limits, check the top active profile events, or look at latest repos
+  for (const target of targets.slice(0, 5)) { // Check first elements for real-time demo
+    const tName = target.github_username;
+    try {
+      addLog("info", `Procurando eventos de @${tName}...`);
+      const events = await fetchGithub(`https://api.github.com/users/${tName}/events/public`, token);
+      
+      const repoCreateEvents = events.filter((e: any) => e.type === "CreateEvent" && e.payload?.ref_type === "repository");
+      
+      const candidateList: Array<{ id: number; name: string; url: string; created_at: string }> = [];
+
+      if (repoCreateEvents.length > 0) {
+        for (const e of repoCreateEvents) {
+          const rId = e.repo.id;
+          const rFullName = e.repo.name; // "username/repo"
+          const rNameOnly = rFullName.substring(rFullName.indexOf("/") + 1);
+          candidateList.push({
+            id: rId,
+            name: rNameOnly,
+            url: `https://github.com/${rFullName}`,
+            created_at: e.created_at || new Date().toISOString()
+          });
+        }
+      } else {
+        // Fallback checks the absolute newest repo so the user sees results immediately
+        const newestRepos = await fetchGithub(`https://api.github.com/users/${tName}/repos?sort=created&direction=desc&per_page=1`, token);
+        if (newestRepos && newestRepos.length > 0) {
+          const nr = newestRepos[0];
+          candidateList.push({
+            id: nr.id,
+            name: nr.name,
+            url: nr.html_url,
+            created_at: nr.created_at
+          });
+        }
+      }
+
+      for (const candidate of candidateList) {
+        const alreadyExists = db.processed_repositories.some(r => r.repo_id === candidate.id);
+        if (alreadyExists) continue;
+
+        addLog("ai", `Novo repositório detetado! @${tName}/${candidate.name}. Gerando ficha de sumário com Inteligência Artificial...`);
+        
+        let readmeText = "";
+        try {
+          const readmeObj = await fetchGithub(`https://api.github.com/repos/${tName}/${candidate.name}/readme`, token);
+          if (readmeObj?.content) {
+            readmeText = Buffer.from(readmeObj.content, "base64").toString("utf-8");
+          }
+        } catch (re) {}
+
+        const { summary, tech } = await generateAiSummary(candidate.name, tName, readmeText);
+
+        const newId = db.processed_repositories.length > 0 ? Math.max(...db.processed_repositories.map(r => r.id)) + 1 : 1;
+        
+        let sentChannel: "Telegram" | "WhatsApp" | "Local Feed" = "Local Feed";
+
+        // Build notification payload
+        const alertMsg = `🚨 *Radar GitNotification - Novo Repositório!*\n\n👤 *Criador:* @${tName}\n📦 *Repositório:* [${candidate.name}](${candidate.url})\n\n💡 *Resumo da IA:*\n${summary}\n\n📅 _Detetado em: ${new Date(candidate.created_at).toLocaleString("pt-PT")}_`;
+
+        // Dispatch Telegram
+        if (db.telegram_config.is_enabled && db.telegram_config.bot_token && db.telegram_config.chat_id) {
+          const ok = await sendTelegramAlert(db.telegram_config.bot_token, db.telegram_config.chat_id, alertMsg);
+          if (ok) {
+            sentChannel = "Telegram";
+            addLog("success", `Notificação de @${tName}/${candidate.name} enviada ao Telegram.`);
+          }
+        }
+
+        // Dispatch Twilio WhatsApp
+        if (sentChannel === "Local Feed" && db.whatsapp_config.is_enabled && db.whatsapp_config.twilio_sid) {
+          const ok = await sendTwilioWhatsApp(
+            db.whatsapp_config.twilio_sid,
+            db.whatsapp_config.twilio_token,
+            db.whatsapp_config.phone_from,
+            db.whatsapp_config.phone_to,
+            `Radar GitNotification - Novo Projeto!\n\nDesenvolvedor: @${tName}\nProjeto: ${candidate.name}\nLink: ${candidate.url}\n\nResumo: \n${summary.replace(/\*\*/g, "")}`
+          );
+          if (ok) {
+            sentChannel = "WhatsApp";
+            addLog("success", `Notificação de @${tName}/${candidate.name} enviada para o WhatsApp.`);
+          }
+        }
+
+        const newRecord = {
+          id: newId,
+          repo_id: candidate.id,
+          repo_name: candidate.name,
+          owner_username: tName,
+          html_url: candidate.url,
+          detected_at: candidate.created_at,
+          ai_summary: summary,
+          tech_stack: tech,
+          notification_sent: sentChannel !== "Local Feed",
+          channel_used: sentChannel
+        };
+
+        db.processed_repositories.unshift(newRecord);
+        newReposFound++;
+        writeDb(db);
+      }
+
+    } catch (err: any) {
+      console.warn(`Could not poll for ${tName}: ${err.message}`);
+      if (err.message.includes("403") || err.message.toLowerCase().includes("rate limit")) {
+        addLog("warn", `Limite de IP do GitHub atingido para @${tName}. Configure o seu 'Token de Acesso' do GitHub para realizar buscas ilimitadas.`);
+      } else {
+        addLog("error", `Erro ao verificar @${tName}: ${err.message}`);
+      }
+    }
+  }
+
+  db.system_status.last_poll = new Date().toISOString();
+  db.system_status.polls_count++;
+  writeDb(db);
+
+  res.json({ success: true, found: newReposFound });
+});
+
+// Clear log feeds
+app.post("/api/clean-history", (req, res) => {
+  const db = readDb();
+  db.processed_repositories = [];
+  db.logs = [
+    { timestamp: new Date().toISOString(), level: "info", message: "Histórico de monitorização do radar limpo." }
+  ];
+  writeDb(db);
+  res.json({ success: true });
+});
+
+// Single-Click Live simulator event trigger (Perfect to demonstrate the whole flow effortlessly!)
+app.post("/api/simulate-fast", async (req, res) => {
+  const { username, repo_name, readme, mockFiles, mockMetadata } = req.body;
+  const db = readDb();
+
+  const creator = username || db.github_config.owner_username || "dev-perfil";
+  const name = repo_name || "core-intelligence-api";
+  const rContent = readme !== undefined ? readme : `# ${name}\n\nSistemas de microsserviços robustos criados para monitorizar repositórios GitHub, agrupar alertas com IA e disparar integrações instantâneas de webhooks.`;
+
+  addLog("info", `[SIMULAÇÃO] A disparar evento de novo repositório @${creator}/${name}...`);
+
+  const { summary, tech } = await generateAiSummary(name, creator, rContent, undefined, mockFiles, mockMetadata);
+
+  const newId = db.processed_repositories.length > 0 ? Math.max(...db.processed_repositories.map(r => r.id)) + 1 : 1;
+  const rId = Math.floor(Math.random() * 90000000) + 10000000;
+
+  let sentChannel: "Telegram" | "WhatsApp" | "Local Feed" = "Local Feed";
+  const alertMsg = `🚨 *Radar GitNotification - Novo Repositório! (Simulado)*\n\n👤 *Criador:* @${creator}\n📦 *Repositório:* [${name}](https://github.com/${creator}/${name})\n\n💡 *Resumo da IA:*\n${summary}\n\n📅 _Detetado em: ${new Date().toLocaleString("pt-PT")}_`;
+
+  if (db.telegram_config.is_enabled && db.telegram_config.bot_token && db.telegram_config.chat_id) {
+    const ok = await sendTelegramAlert(db.telegram_config.bot_token, db.telegram_config.chat_id, alertMsg);
+    if (ok) sentChannel = "Telegram";
+  }
+
+  if (sentChannel === "Local Feed" && db.whatsapp_config.is_enabled && db.whatsapp_config.twilio_sid) {
+    const ok = await sendTwilioWhatsApp(
+      db.whatsapp_config.twilio_sid,
+      db.whatsapp_config.twilio_token,
+      db.whatsapp_config.phone_from,
+      db.whatsapp_config.phone_to,
+      `Radar GitNotification - Novo Projeto!\n\nDesenvolvedor: @${creator}\nProjeto: ${name}\n\nResumo:\n${summary.replace(/\*\*/g, "")}`
+    );
+    if (ok) sentChannel = "WhatsApp";
+  }
+
+  const simulatedRecord = {
+    id: newId,
+    repo_id: rId,
+    repo_name: name,
+    owner_username: creator,
+    html_url: `https://github.com/${creator}/${name}`,
+    detected_at: new Date().toISOString(),
+    ai_summary: summary,
+    tech_stack: tech,
+    notification_sent: sentChannel !== "Local Feed",
+    channel_used: sentChannel
+  };
+
+  db.processed_repositories.unshift(simulatedRecord);
+  
+  // Make sure user is added to list if missing
+  const userExists = db.monitored_users.some(u => u.github_username.toLowerCase() === creator.toLowerCase());
+  if (!userExists) {
+    db.monitored_users.push({
+      github_username: creator,
+      added_at: new Date().toISOString()
+    });
+  }
+
+  writeDb(db);
+  addLog("success", `[SIMULAÇÃO] Novo repositório injetado com sucesso! Canal: ${sentChannel}`);
+  res.json({ success: true, record: simulatedRecord });
+});
+
+// Single-Click Telegram test dispatcher
+app.post("/api/test-telegram-direct", async (req, res) => {
+  const { bot_token, chat_id } = req.body;
+  if (!bot_token || !chat_id) {
+    res.status(400).json({ error: "Insira as credenciais do seu canal primeiro." });
+    return;
+  }
+  
+  const testMsg = `🔔 *Mensagem de Teste do Radar GitNotification!*\n\nLigação efetuada com sucesso! O seu canal está configurado e pronto para receber notificações automáticas de novos códigos detetados.\n\n📅 _Data: ${new Date().toLocaleString("pt-PT")}_`;
+  
+  try {
+    const url = `https://api.telegram.org/bot${bot_token}/sendMessage`;
+    const response = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        chat_id: chat_id,
+        text: testMsg,
+        parse_mode: "Markdown"
+      })
+    });
+    
+    const telegramRes = await response.json().catch(() => null);
+    
+    if (response.ok && telegramRes?.ok) {
+      res.json({ success: true });
+    } else {
+      const tgError = telegramRes?.description || `Erro de rede HTTP ${response.status}`;
+      let customErr = `${tgError}`;
+      
+      if (tgError.toLowerCase().includes("chat not found")) {
+        customErr += " — Certifique-se de que enviou a mensagem /start ao seu Bot no Telegram antes de testar. Importante: no campo 'Chat ID', insira o seu ID de Chat pessoal (obtido com @userinfobot ou @raw_data_bot), e NÃO o ID/Token do próprio Bot!";
+      } else if (tgError.toLowerCase().includes("unauthorized")) {
+        customErr += " — O Token do Bot é inválido. Verifique o token fornecido pelo @BotFather.";
+      } else {
+        customErr += " — Verifique se inseriu o Token do Bot e o Chat ID pessoal corretamente, e se iniciou o Bot com /start no Telegram.";
+      }
+      
+      res.status(400).json({ error: customErr });
+    }
+  } catch (err: any) {
+    res.status(400).json({ error: `Incapaz de alcançar a API do Telegram: ${err.message || err}` });
+  }
+});
+
+
+/**
+ * ----------------- VITE MIDDLEWARES -----------------
+ */
+
+async function startServer() {
+  if (process.env.NODE_ENV !== "production") {
+    const vite = await createViteServer({
+      server: { middlewareMode: true },
+      appType: "spa"
+    });
+    app.use(vite.middlewares);
+  } else {
+    const distPath = path.join(process.cwd(), "dist");
+    app.use(express.static(distPath));
+    app.get("*", (req, res) => {
+      res.sendFile(path.join(distPath, "index.html"));
+    });
+  }
+
+  app.listen(PORT, "0.0.0.0", () => {
+    console.log(`Radar is up and listening on port ${PORT}`);
+  });
+}
+
+startServer();

@@ -1,0 +1,6 @@
+{
+  "name": "GitNotification",
+  "description": "Radar de eventos públicos do GitHub que detecta novos repositórios de desenvolvedores monitorizados, gera resumos estruturados com Inteligência Artificial e automatiza notificações.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

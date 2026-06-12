@@ -1,0 +1,44 @@
+{
+  "github_config": {
+    "owner_username": "manueldeDeusdev56",
+    "personal_token": "",
+    "sync_last_date": "2026-06-12T04:30:00.000Z"
+  },
+  "monitored_users": [
+    {
+      "github_username": "nicolemos56",
+      "avatar_url": "https://avatars.githubusercontent.com/u/129528741?v=4",
+      "added_at": "2026-06-12T04:30:00.000Z"
+    },
+    {
+      "github_username": "torvalds",
+      "avatar_url": "https://avatars.githubusercontent.com/u/1024025?v=4",
+      "added_at": "2026-06-12T04:30:00.000Z"
+    }
+  ],
+  "processed_repositories": [],
+  "telegram_config": {
+    "bot_token": "8607073819:AAGQbBUXSDHQlXeMSLpPgcWRpeW_QRGRMFY",
+    "chat_id": "7641677194",
+    "is_enabled": true
+  },
+  "whatsapp_config": {
+    "twilio_sid": "",
+    "twilio_token": "",
+    "phone_from": "",
+    "phone_to": "",
+    "is_enabled": false
+  },
+  "logs": [
+    {
+      "timestamp": "2026-06-12T04:30:00.000Z",
+      "level": "info",
+      "message": "Radar de automação GitNotification iniciado para o usuário manueldeDeusdev56."
+    }
+  ],
+  "system_status": {
+    "is_automation_active": true,
+    "last_poll": null,
+    "polls_count": 0
+  }
+}
