@@ -1,22 +1,22 @@
-# GitNotification 🚀
+# GitNotification 
 
-**GitNotification** (anteriormente GitPulse) é um monitor inteligente em tempo real que acompanha as atividades dos desenvolvedores que você segue no GitHub. Ele detecta novos repositórios criados por eles, cria resumos automatizados com Inteligência Artificial (usando a API do Gemini) e envia relatórios e alertas instantâneos diretamente para o seu **Telegram** ou **WhatsApp** (via Twilio).
+**GitNotification**  é um monitor inteligente em tempo real que acompanha as atividades dos desenvolvedores que você segue no GitHub. Ele detecta novos repositórios criados por eles, cria resumos automatizados com Inteligência Artificial (usando a API do Gemini) e envia relatórios e alertas instantâneos diretamente para o seu **Telegram** ou **WhatsApp** (via Twilio).
 
 ---
 
-## ✨ Características Principais
+##  Características Principais
 
-- 👤 **Monitorização do GitHub**: Sincronize e monitorize automaticamente todos os desenvolvedores que segue no GitHub com apenas um clique.
-- 🧠 **Resumos Inteligência Artificial (Gemini Core)**: Integração com a API do Gemini 3.5 para extrair o objetivo de cada novo repositório, classificar a Stack Tecnológica e gerar casos de uso práticos.
-- 📬 **Notificações Multicanal**:
+-  **Monitorização do GitHub**: Sincronize e monitorize automaticamente todos os desenvolvedores que segue no GitHub com apenas um clique.
+-  **Resumos Inteligência Artificial (Gemini Core)**: Integração com a API do Gemini 3.5 para extrair o objetivo de cada novo repositório, classificar a Stack Tecnológica e gerar casos de uso práticos.
+-  **Notificações Multicanal**:
   - **Telegram**: Alertas imediatos com formatação e links diretos para o GitHub.
   - **WhatsApp**: Encaminhamento nativo de mensagens diretas via plataforma Twilio.
-- ⚡ **Varredura Ativa**: Mecanismo de verificação agendada que varre o GitHub de forma eficiente, contornando limites de taxa com tokens pessoais opcionais.
-- 🖥️ **Consola de Eventos em Tempo Real**: Visualize a atividade e o fluxo de monitorização diretamente no ecrã com um histórico interativo da IA.
+-  **Varredura Ativa**: Mecanismo de verificação agendada que varre o GitHub de forma eficiente, contornando limites de taxa com tokens pessoais opcionais.
+-  **Consola de Eventos em Tempo Real**: Visualize a atividade e o fluxo de monitorização diretamente no ecrã com um histórico interativo da IA.
 
 ---
 
-## 🛠️ Como Funciona e Como Configurar
+##  Como Funciona e Como Configurar
 
 ### 1. Telegram (Como encontrar informações necessárias)
 
