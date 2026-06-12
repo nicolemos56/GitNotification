@@ -46,7 +46,6 @@ export default function App() {
   const [ownerUsername, setOwnerUsername] = useState("");
   const [personalToken, setPersonalToken] = useState("");
   const [showToken, setShowToken] = useState(false);
-  const [newMonitoredUser, setNewMonitoredUser] = useState("");
   
   const [telegram, setTelegram] = useState<TelegramConfig>({ bot_token: "", chat_id: "", is_enabled: false });
   const [whatsapp, setWhatsapp] = useState<WhatsAppConfig>({ twilio_sid: "", twilio_token: "", phone_from: "", phone_to: "", is_enabled: false });
@@ -245,46 +244,6 @@ export default function App() {
     }
   };
 
-  const handleAddManualUser = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newMonitoredUser.trim()) return;
-    try {
-      const res = await fetch("/api/add-monitored", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ github_username: newMonitoredUser.trim() })
-      });
-      const data = await res.json();
-      if (res.ok) {
-        setBanner({ type: "success", text: `Desenvolvedor @${newMonitoredUser.trim()} adicionado com sucesso.` });
-        setNewMonitoredUser("");
-        await fetchData(false);
-      } else {
-        setBanner({ type: "error", text: data.error || "Erro ao adicionar desenvolvedor." });
-      }
-    } catch (err) {
-      setBanner({ type: "error", text: "Erro ao comunicar com o servidor." });
-    }
-  };
-
-  const handleRemoveMonitoredUser = async (username: string) => {
-    try {
-      const res = await fetch("/api/remove-monitored", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ github_username: username })
-      });
-      if (res.ok) {
-        setBanner({ type: "success", text: `Desenvolvedor @${username} removido com sucesso.` });
-        await fetchData(false);
-      } else {
-        setBanner({ type: "error", text: "Erro ao remover desenvolvedor." });
-      }
-    } catch (err) {
-      setBanner({ type: "error", text: "Incapaz de alcançar o servidor." });
-    }
-  };
-
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans antialiased overflow-x-hidden selection:bg-indigo-500/30 selection:text-indigo-200">
       
@@ -381,8 +340,8 @@ export default function App() {
                     type="text"
                     value={ownerUsername}
                     onChange={(e) => setOwnerUsername(e.target.value)}
-                    placeholder="ex: gaearon"
-                    className="w-full bg-slate-950 border border-slate-850 focus:border-indigo-500 rounded-xl pl-8 pr-4 py-2 text-xs text-slate-100 outline-none transition-all placeholder:text-slate-650 font-semibold"
+                    placeholder="andrejunqueira1999"
+                    className="w-full bg-slate-950 border border-slate-850 focus:border-indigo-500 rounded-xl pl-8 pr-4 py-2 text-xs text-slate-100 outline-none transition-all placeholder:text-slate-600 font-semibold"
                   />
                 </div>
               </div>
@@ -391,7 +350,7 @@ export default function App() {
               <div className="space-y-1.5">
                 <div className="flex items-center justify-between">
                   <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wide font-mono block">Token de Acesso GitHub (Opcional):</label>
-                  <span className="text-[10px] text-slate-500 font-mono">Ultrapassa rate-limits</span>
+                  <span className="text-[10px] text-slate-500 font-mono">Bypassa rate-limits</span>
                 </div>
                 <div className="relative">
                   <input
@@ -409,19 +368,25 @@ export default function App() {
                     {showToken ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                   </button>
                 </div>
-                <p className="text-[10px] text-slate-500 leading-relaxed font-sans mt-0.5">
-                  💡 Recomendado. Sincronize seguidores e busque novos projetos em alta velocidade.
+                <p className="text-[10px] text-slate-550 leading-relaxed font-sans mt-1">
+                  💡 Altamente recomendado. Permite carregar quem segue instantaneamente e ler novos repositórios sem bloqueios de IP.
                 </p>
               </div>
-
-
             </div>
 
             {/* Sync followed developers button */}
             <div className="pt-4 border-t border-slate-900/60 flex flex-col sm:flex-row items-center justify-between gap-3">
               <div className="text-[11px] text-slate-400 text-left">
+                {monitoredUsers.length > 0 ? (
+                  <span className="flex items-center gap-1.5 font-mono">
+                    <Users className="w-3.5 h-3.5 text-indigo-400" />
+                    A monitorar: <strong>{monitoredUsers.length}</strong> desenvolvedores
+                  </span>
+                ) : (
+                  <span className="text-slate-500">Nenhum seguidor sincronizado</span>
+                )}
                 {syncLastDate && (
-                  <p className="text-[9.5px] text-slate-500 mt-0.5">Sincronizado: {new Date(syncLastDate).toLocaleString("pt-PT")}</p>
+                  <p className="text-[9.5px] text-slate-500 mt-0.5">Sincronizado em: {new Date(syncLastDate).toLocaleDateString("pt-PT")}</p>
                 )}
               </div>
 
@@ -434,7 +399,7 @@ export default function App() {
                   disabled={isSaving}
                   className="bg-slate-950 hover:bg-slate-900 text-slate-300 text-xs px-3.5 py-1.5 rounded-xl border border-slate-800 transition-colors cursor-pointer w-full sm:w-auto"
                 >
-                  {isSaving ? "A guardar..." : "Guardar Dados"}
+                  {isSaving ? "A guardar..." : "Guardar"}
                 </button>
 
                 <button
@@ -608,7 +573,7 @@ export default function App() {
                 type="button"
                 onClick={() => handleSaveConfigs()}
                 disabled={isSaving}
-                className="bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-900 text-white text-xs font-semibold px-4 py-1.5 rounded-xl transition-colors cursor-pointer w-full sm:w-auto text-center"
+                className="bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-900 text-white text-xs font-semibold px-4 py-1.5 rounded-xl transition-colors cursor-pointer"
               >
                 {isSaving ? "Gravando canal..." : "Gravar Definições"}
               </button>
