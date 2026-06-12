@@ -51,6 +51,11 @@ Para encaminhar alertas diretamente ao seu telemóvel pessoal através do WhatsA
 ---
 
 ### 3. Executando a Aplicação Localmente
+A forma mais simples de ver o projeto em ação é através da nossa aplicação web implementada.
+
+URL da Aplicação: http://13.222.132.210:8501/](https://gitnotification-production.up.railway.app/)
+
+Nota: Por se tratar de um protótipo, a instância pode não estar sempre ativa.
 
 #### Instalar Dependências
 ```bash
