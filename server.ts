@@ -855,13 +855,40 @@ app.post("/api/test-telegram-direct", async (req, res) => {
  */
 
 async function startServer() {
+  // Default to "production" when NODE_ENV is not explicitly set — this is the
+  // expected state on Railway where the built artefact (dist/server.cjs) is
+  // executed directly via `node dist/server.cjs`. Without this guard the server
+  // would attempt to spin up a full Vite dev server inside the container, which
+  // hangs indefinitely because the source files and HMR infrastructure are not
+  // available at runtime, preventing app.listen() from ever being reached.
+  if (!process.env.NODE_ENV) {
+    process.env.NODE_ENV = "production";
+    console.log("[startup] NODE_ENV was not set — defaulting to 'production'");
+  }
+
+  console.log(`[startup] NODE_ENV=${process.env.NODE_ENV}`);
+
   if (process.env.NODE_ENV !== "production") {
-    const vite = await createViteServer({
-      server: { middlewareMode: true },
-      appType: "spa"
-    });
-    app.use(vite.middlewares);
+    console.log("[startup] Initializing Vite dev server in middleware mode...");
+    try {
+      const vite = await createViteServer({
+        server: { middlewareMode: true },
+        appType: "spa"
+      });
+      app.use(vite.middlewares);
+      console.log("[startup] Vite middleware attached successfully.");
+    } catch (err) {
+      console.error("[startup] Vite initialization failed — falling back to static serving:", err);
+      // Fall back to static serving so the HTTP server still starts even if
+      // Vite fails to initialize (e.g. missing source files in the container).
+      const distPath = path.join(process.cwd(), "dist");
+      app.use(express.static(distPath));
+      app.get("*", (req, res) => {
+        res.sendFile(path.join(distPath, "index.html"));
+      });
+    }
   } else {
+    console.log("[startup] Production mode — serving pre-built static assets from dist/");
     const distPath = path.join(process.cwd(), "dist");
     app.use(express.static(distPath));
     app.get("*", (req, res) => {
@@ -869,9 +896,17 @@ async function startServer() {
     });
   }
 
-  app.listen(PORT, "0.0.0.0", () => {
+  console.log(`[startup] Calling app.listen on 0.0.0.0:${PORT}...`);
+  app.listen(PORT, "0.0.0.0", (err?: Error) => {
+    if (err) {
+      console.error(`[startup] Failed to bind to port ${PORT}:`, err);
+      process.exit(1);
+    }
     console.log(`Radar is up and listening on port ${PORT}`);
   });
 }
 
-startServer();
+startServer().catch((err) => {
+  console.error("[startup] Unhandled error during server startup:", err);
+  process.exit(1);
+});
