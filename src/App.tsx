@@ -607,13 +607,13 @@ export default function App() {
       {/* Crafted Minimalist footer */}
       <footer className="border-t border-slate-900 mt-16 py-8 px-4 bg-slate-950 text-center text-[10.5px] text-slate-500 font-mono">
         <div className="max-w-7xl mx-auto flex flex-col sm:flex-row justify-between items-center gap-3">
-          <p>© 2026 GitNotification Automator. Todos os direitos reservados.</p>
+          <p>© 2026 GitNotification Automator. Todos os direitos reservados. <span className="text-indigo-400">D´DEUS´DEV<span>•</span> TECH </span> </p>
           <div className="flex gap-4">
             <a href="https://github.com" target="_blank" rel="noreferrer" className="hover:text-slate-350 transition-colors">
               GitHub
             </a>
             <span>•</span>
-            <span className="text-indigo-400">Desenvolvido com Gemini AI Core</span>
+            <span className="text-indigo-400">D´DEUS´DEV<span>•</span> TECH </span>
           </div>
         </div>
       </footer>
