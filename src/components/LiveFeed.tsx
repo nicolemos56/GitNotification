@@ -13,11 +13,15 @@ interface LiveFeedProps {
 }
 
 export default function LiveFeed({ repositories, onClearFeed }: LiveFeedProps) {
+  const [isConfirming, setIsConfirming] = React.useState(false);
 
   const handleClear = async () => {
-    if (window.confirm("Deseja limpar o histórico de alertas e repositórios detetados?")) {
-      await onClearFeed();
+    if (!isConfirming) {
+      setIsConfirming(true);
+      return;
     }
+    await onClearFeed();
+    setIsConfirming(false);
   };
 
   return (
@@ -34,13 +38,38 @@ export default function LiveFeed({ repositories, onClearFeed }: LiveFeedProps) {
         </div>
 
         {repositories.length > 0 && (
-          <button
-            onClick={handleClear}
-            className="text-slate-400 hover:text-rose-400 border border-slate-800 hover:border-rose-500/20 text-[11px] px-2.5 py-1.5 rounded-lg hover:bg-rose-500/5 transition-all cursor-pointer font-mono"
-            id="btn-clear-feed"
-          >
-            <Trash2 className="w-3.5 h-3.5" />
-          </button>
+          <div className="flex items-center gap-2">
+            {isConfirming ? (
+              <>
+                <button
+                  type="button"
+                  onClick={() => setIsConfirming(false)}
+                  className="text-slate-400 hover:text-slate-200 border border-slate-800 text-[11px] font-semibold px-2.5 py-1.5 rounded-xl transition-all cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  onClick={handleClear}
+                  className="flex items-center gap-1.5 text-white bg-rose-600 hover:bg-rose-500 text-[11px] font-semibold px-3 py-1.5 rounded-xl transition-all cursor-pointer"
+                  id="btn-clear-feed-confirm"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>Confirmar Limpeza</span>
+                </button>
+              </>
+            ) : (
+              <button
+                type="button"
+                onClick={handleClear}
+                className="flex items-center gap-1.5 text-slate-400 hover:text-rose-400 border border-slate-800 hover:border-rose-500/20 text-[11px] font-semibold px-3 py-1.5 rounded-xl hover:bg-rose-500/5 transition-all cursor-pointer"
+                id="btn-clear-feed"
+              >
+                <Trash2 className="w-3.5 h-3.5 text-rose-450" />
+                <span>Limpar Histórico</span>
+              </button>
+            )}
+          </div>
         )}
       </div>
 

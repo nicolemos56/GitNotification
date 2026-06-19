@@ -1,22 +1,35 @@
 {
   "github_config": {
-    "owner_username": "manueldeDeusdev56",
+    "owner_username": "nicolemos56",
     "personal_token": "",
-    "sync_last_date": "2026-06-12T04:30:00.000Z"
+    "sync_last_date": "2026-06-11T18:58:43.239Z"
   },
   "monitored_users": [
     {
-      "github_username": "nicolemos56",
-      "avatar_url": "https://avatars.githubusercontent.com/u/129528741?v=4",
-      "added_at": "2026-06-12T04:30:00.000Z"
-    },
-    {
       "github_username": "torvalds",
       "avatar_url": "https://avatars.githubusercontent.com/u/1024025?v=4",
-      "added_at": "2026-06-12T04:30:00.000Z"
+      "added_at": "2026-06-11T18:58:43.239Z"
+    },
+    {
+      "github_username": "gaearon",
+      "avatar_url": "https://avatars.githubusercontent.com/u/810438?v=4",
+      "added_at": "2026-06-11T18:58:43.239Z"
     }
   ],
-  "processed_repositories": [],
+  "processed_repositories": [
+    {
+      "id": 1,
+      "repo_id": 1266610599,
+      "repo_name": "GitNotification",
+      "owner_username": "nicolemos56",
+      "html_url": "https://github.com/nicolemos56/GitNotification",
+      "detected_at": "2026-06-11T19:33:21Z",
+      "ai_summary": "- **Objetivo Principal**: Criar uma plataforma de intermediação de trabalho freelance direcionada especificamente para o mercado e profissionais autônomos em Angola.\n- **Stack Tecnológica**: React, Node.js, PostgreSQL\n- **Caso de Uso Útil**: Centralizar a publicação de vagas temporárias e a exposição de portfólios locais, facilitando a conexão e contratação de prestadores de serviços angolanos de forma direta.",
+      "tech_stack": "TypeScript, Node.js",
+      "notification_sent": true,
+      "channel_used": "Telegram"
+    }
+  ],
   "telegram_config": {
     "bot_token": "8607073819:AAGQbBUXSDHQlXeMSLpPgcWRpeW_QRGRMFY",
     "chat_id": "7641677194",
@@ -31,14 +44,19 @@
   },
   "logs": [
     {
-      "timestamp": "2026-06-12T04:30:00.000Z",
+      "timestamp": "2026-06-11T20:03:02.423Z",
+      "level": "success",
+      "message": "Configurações de integração guardadas com sucesso."
+    },
+    {
+      "timestamp": "2026-06-11T20:02:26.877Z",
       "level": "info",
-      "message": "Radar de automação GitNotification iniciado para o usuário manueldeDeusdev56."
+      "message": "Histórico de monitorização do radar limpo."
     }
   ],
   "system_status": {
     "is_automation_active": true,
-    "last_poll": null,
-    "polls_count": 0
+    "last_poll": "2026-06-11T20:03:14.311Z",
+    "polls_count": 16
   }
 }

@@ -573,7 +573,7 @@ export default function App() {
                 type="button"
                 onClick={() => handleSaveConfigs()}
                 disabled={isSaving}
-                className="bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-900 text-white text-xs font-semibold px-4 py-1.5 rounded-xl transition-colors cursor-pointer"
+                className="bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-900 text-white text-xs font-semibold px-4 py-1.5 rounded-xl transition-colors cursor-pointer w-full sm:w-auto text-center"
               >
                 {isSaving ? "Gravando canal..." : "Gravar Definições"}
               </button>

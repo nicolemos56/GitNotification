@@ -248,14 +248,113 @@ async function fetchGithub(url: string, personal_token?: string) {
 /**
  * AI Summarizer
  */
-async function generateAiSummary(repoName: string, owner: string, readme: string): Promise<{ summary: string; tech: string }> {
-  const prompt = `Analisa este repositório recém-criado: '${repoName}' de '${owner}'.
+async function generateAiSummary(
+  repoName: string,
+  owner: string,
+  readme: string,
+  personalToken?: string,
+  mockFiles?: any[],
+  mockMetadata?: any
+): Promise<{ summary: string; tech: string }> {
+  // Check if readme is empty, extremely short, or only contains the repository name (raw placeholder headings)
+  const normalizedReadme = (readme || "")
+    .replace(/[#\s\-*_]/g, "")
+    .toLowerCase()
+    .trim();
+  const normalizedRepoName = repoName.replace(/[#\s\-*_]/g, "").toLowerCase().trim();
+
+  const isMinimalReadme = !readme || 
+    readme.trim().length === 0 || 
+    normalizedReadme === normalizedRepoName ||
+    readme.trim().length < 40;
+
+  let sourceOfSummary: "readme" | "files" | "metadata" = "readme";
+  let prompt = "";
+  let filesListStr = "";
+  let repoMetadataStr = "";
+
+  const db = readDb();
+  const tokenToUse = personalToken || db?.github_config?.personal_token || process.env.GITHUB_TOKEN;
+
+  // Flow: Deciding if we read the README, search repository files list, or check repository metadata
+  if (isMinimalReadme) {
+    if (mockFiles && mockFiles.length > 0) {
+      sourceOfSummary = "files";
+      filesListStr = mockFiles.map((f: any) => `- ${f.name} (${f.type === "dir" ? "directório" : "ficheiro"}, tamanho: ${f.size || 0} bytes)`).join("\n");
+    } else {
+      try {
+        // Try to fetch real files from root contents of GitHub Repository
+        const repoContents = await fetchGithub(`https://api.github.com/repos/${owner}/${repoName}/contents`, tokenToUse);
+        if (Array.isArray(repoContents) && repoContents.length > 0) {
+          const otherFiles = repoContents.filter((f: any) => f.name.toLowerCase() !== "readme.md");
+          if (otherFiles.length > 0) {
+            sourceOfSummary = "files";
+            filesListStr = otherFiles.map((f: any) => `- ${f.name} (${f.type === "dir" ? "directório" : "ficheiro"}, tamanho: ${f.size || 0} bytes)`).join("\n");
+          }
+        }
+      } catch (err: any) {
+        console.warn(`Could not fetch root contents for ${owner}/${repoName}: ${err.message}`);
+      }
+    }
+
+    if (sourceOfSummary !== "files") {
+      if (mockMetadata) {
+        sourceOfSummary = "metadata";
+        repoMetadataStr = JSON.stringify(mockMetadata, null, 2);
+      } else {
+        try {
+          // Fetch GitHub Repo metadata
+          const metadata = await fetchGithub(`https://api.github.com/repos/${owner}/${repoName}`, tokenToUse);
+          if (metadata) {
+            sourceOfSummary = "metadata";
+            repoMetadataStr = JSON.stringify({
+              description: metadata.description || "Sem descrição pública no GitHub.",
+              language: metadata.language || "Indeterminada / Não detetada",
+              topics: metadata.topics || [],
+              size_kb: metadata.size || 0,
+              fork: metadata.fork,
+              homepage: metadata.homepage || "Nenhuma",
+              created_at: metadata.created_at,
+              updated_at: metadata.updated_at
+            }, null, 2);
+          }
+        } catch (err: any) {
+          console.warn(`Could not fetch repository metadata for ${owner}/${repoName}: ${err.message}`);
+        }
+      }
+    }
+  }
+
+  // Construct precise summary prompts based on determined source of truth
+  if (sourceOfSummary === "readme") {
+    prompt = `Analisa este repositório recém-criado: '${repoName}' de '${owner}'.
 Readme do código: ${readme ? readme.substring(0, 1500) : "Nenhum Readme público disponível."}
 
 Gera um resumo técnico estrito neste formato simples:
-- **Objetivo Principal**: (1 frase concisa do que o projeto faz)
-- **Stack Tecnológica**: (Lista de tecnologias principais separadas por vírgulas)
+- **Objetivo Principal**: (1 frase concisa do que o projeto faz com base no Readme)
+- **Stack Tecnológica**: (Lista de tecnologias principais separadas por vírgulas, ex. React, TypeScript, Node.js)
 - **Caso de Uso Útil**: (Onde este projeto pode ser de utilidade prática)`;
+  } else if (sourceOfSummary === "files") {
+    prompt = `Analisa este repositório recém-criado '${repoName}' de '${owner}'.
+O README do repositório está em falta ou vazio, mas os seguintes ficheiros e directórios foram detetados na sua raiz:
+${filesListStr}
+
+Gera um resumo técnico rigoroso deduzindo o propósito do projecto e a sua tecnologia através da sua estrutura:
+- **Objetivo Principal**: (Deduza e apresente 1 frase concisa de qual parece ser o objetivo de desenvolvimento deste repositório com base unicamente na estrutura de ficheiros. Mencione explicitamente que analisou a estrutura do repositório porque o README está vazio)
+- **Stack Tecnológica**: (Deduza as tecnologias prováveis mais ligadas aos ficheiros detetados, ex. se houver package.json coloque Node.js/TypeScript, ou de acordo com a extensão)
+- **Caso de Uso Útil**: (Caso de uso prático provável para este repositório de acordo com a sua estrutura)`;
+  } else {
+    // sourceOfSummary === "metadata"
+    prompt = `Analisa este repositório recém-criado: '${repoName}' de '${owner}'.
+Este repositório está totalmente vazio ou é apenas um rascunho de sandbox sem ficheiros adicionais nem README detalhado.
+Metadados estendidos do GitHub:
+${repoMetadataStr || "Nenhum metadado detalhado e nenhum ficheiro pôde ser carregado."}
+
+Por favor, gera o seguinte resumo de estado honestamente, sem inventar funcionalidades falsas:
+- **Objetivo Principal**: (1 frase concisa explicando o estado atual do repositório. Sê totalmente honesto: refere que é um repositório vazio, inicial ou de testes/sandbox, indicando a linguagem inicial caso esteja nos metadados)
+- **Stack Tecnológica**: (Lista a linguagem principal detetada, ou 'Repositório Vazio/Indeterminada' se não houver código)
+- **Caso de Uso Útil**: (Apenas experimentação local de controle de versão ou espaço reservado para desenvolvimento futuro de '${repoName}')`;
+  }
 
   const aiClient = getGeminiClient();
   if (aiClient) {
@@ -268,32 +367,61 @@ Gera um resumo técnico estrito neste formato simples:
       const text = response.text || "";
       
       let tech = "TypeScript, Node.js";
-      const stackMatch = text.match(/(?:Stack Tecnológica|Tech Stack):\*\*?\s*([^\n]+)/i) || text.match(/(?:Stack Tecnológica|Tech Stack):\s*([^\n]+)/i);
-      if (stackMatch && stackMatch[1]) {
-        tech = stackMatch[1].replace(/[*-]/g, "").trim();
+      if (sourceOfSummary === "metadata") {
+        tech = "Repositório Vazio / Inicial";
+      } else {
+        const stackMatch = text.match(/(?:Stack Tecnológica|Tech Stack):\*\*?\s*([^\n]+)/i) || text.match(/(?:Stack Tecnológica|Tech Stack):\s*([^\n]+)/i);
+        if (stackMatch && stackMatch[1]) {
+          tech = stackMatch[1].replace(/[*-]/g, "").trim();
+        }
       }
       return { summary: text, tech };
     } catch (err: any) {
-      console.error("Gemini analysis failed, using dynamic local fallback generator...", err);
+      console.error("Gemini analysis failed, using local logic fallback...", err);
     }
   }
 
-  // Dynamic dynamic fallback generator instead of static monotonous copy
-  // Deduces technology based on repository name rules
+  // Fallback engine
   let tech = "Node.js, TypeScript";
-  const nameLower = repoName.toLowerCase();
-  if (nameLower.includes("react") || nameLower.includes("vue") || nameLower.includes("angular") || nameLower.endsWith(".io") || nameLower.includes("page")) {
-    tech = "React, Tailwind, TypeScript";
-  } else if (nameLower.includes("python") || nameLower.includes("ai") || nameLower.includes("ml") || nameLower.includes("model")) {
-    tech = "Python, PyTorch, Jupyter";
-  } else if (nameLower.includes("docker") || nameLower.includes("infra") || nameLower.includes("kube")) {
-    tech = "Docker, Go, Bash";
-  }
+  if (sourceOfSummary === "files") {
+    const lowerFiles = filesListStr.toLowerCase();
+    if (lowerFiles.includes("package.json") || lowerFiles.includes("tsconfig.json")) {
+      tech = "Node.js, TypeScript";
+    } else if (lowerFiles.includes("requirements.txt") || lowerFiles.includes("main.py") || lowerFiles.includes("setup.py")) {
+      tech = "Python";
+    } else if (lowerFiles.includes("go.mod") || lowerFiles.includes("main.go")) {
+      tech = "Go Lang";
+    } else if (lowerFiles.includes("cargo.toml")) {
+      tech = "Rust Code";
+    } else {
+      tech = "Ficheiros Estruturados Diversos";
+    }
 
-  const summary = `**Objetivo Principal**: Código fonte focado em desenvolvimento de soluções técnicas para o projeto '${repoName}'.
-**Stack Tecnológica**: ${tech}
-**Caso de Uso Útil**: Referência e infraestrutura inicial de desenvolvimento público para a comunidade Open Source.`;
-  return { summary, tech };
+    const summary = `- **Objetivo Principal**: Detetado com base na estrutura de pastas (README ausente). Parece ser um repositório estruturado para desenvolvimento.
+- **Stack Tecnológica**: ${tech}
+- **Caso de Uso Útil**: Desenvolvimento contínuo com base na sua configuração de diretórios existente.`;
+    return { summary, tech };
+  } else if (sourceOfSummary === "metadata") {
+    tech = "Repositório Vazio / Sem Ficheiros";
+    const summary = `- **Objetivo Principal**: Repositório de rascunho em estado inicial de configuração, sem README nem ficheiros associados.
+- **Stack Tecnológica**: ${tech}
+- **Caso de Uso Útil**: Sandbox para testes git ou espaço reservado para futura implementação de código para '${repoName}'.`;
+    return { summary, tech };
+  } else {
+    const nameLower = repoName.toLowerCase();
+    if (nameLower.includes("react") || nameLower.includes("vue") || nameLower.includes("angular") || nameLower.endsWith(".io") || nameLower.includes("page")) {
+      tech = "React, Tailwind, TypeScript";
+    } else if (nameLower.includes("python") || nameLower.includes("ai") || nameLower.includes("ml") || nameLower.includes("model")) {
+      tech = "Python, PyTorch, Jupyter";
+    } else if (nameLower.includes("docker") || nameLower.includes("infra") || nameLower.includes("kube")) {
+      tech = "Docker, Go, Bash";
+    }
+
+    const summary = `- **Objetivo Principal**: Código fonte focado em desenvolvimento de soluções técnicas para o projeto '${repoName}'.
+- **Stack Tecnológica**: ${tech}
+- **Caso de Uso Útil**: Referência e infraestrutura inicial de desenvolvimento público para a comunidade Open Source.`;
+    return { summary, tech };
+  }
 }
 
 /**
@@ -422,21 +550,40 @@ app.post("/api/sync-following", async (req, res) => {
 
   try {
     addLog("info", `A carregar desenvolvedores seguidos por @${username}...`);
-    // Fetch following developers
-    const following = await fetchGithub(`https://api.github.com/users/${username}/following?per_page=100`, token);
+    // Fetch following developers with robust API rate-limit resilience
+    let following;
+    try {
+      following = await fetchGithub(`https://api.github.com/users/${username}/following?per_page=100`, token);
+    } catch (githubErr: any) {
+      console.warn(`Sync following failed on API: ${githubErr.message}`);
+      if (!token) {
+        // Shared Cloud Run containers hit unauthenticated rate limits quickly. Fallback to active pioneers to show scanner in action immediately.
+        addLog("warn", "Limite de IP do GitHub atingido. Carregado roster de demonstração (torvalds, gaearon, yyx99080). Adicione um 'Token de Acesso' para sincronizar em tempo real.");
+        following = [
+          { login: "torvalds", avatar_url: "https://avatars.githubusercontent.com/u/1024025?v=4" },
+          { login: "gaearon", avatar_url: "https://avatars.githubusercontent.com/u/810438?v=4" },
+          { login: "yyx990803", avatar_url: "https://avatars.githubusercontent.com/u/499550?v=4" }
+        ];
+      } else {
+        throw githubErr;
+      }
+    }
     
     if (Array.isArray(following)) {
-      const monitored = following.map((f: any) => ({
-        github_username: f.login,
-        avatar_url: f.avatar_url,
-        added_at: new Date().toISOString()
-      }));
+      // Exclude the owner itself from the synced list
+      const monitored = following
+        .filter((f: any) => f.login.toLowerCase() !== username.toLowerCase())
+        .map((f: any) => ({
+          github_username: f.login,
+          avatar_url: f.avatar_url,
+          added_at: new Date().toISOString()
+        }));
 
       db.monitored_users = monitored;
       db.github_config.sync_last_date = new Date().toISOString();
       writeDb(db);
 
-      addLog("success", `Sincronizados com sucesso! ${monitored.length} perfis seguidos adicionados para rastreamento.`);
+      addLog("success", `Sincronizados com sucesso! ${monitored.length} perfis de terceiros adicionados para rastreamento.`);
       res.json({ success: true, count: monitored.length, users: monitored });
     } else {
       throw new Error("Resposta da API de Seguidores inesperada.");
@@ -450,14 +597,19 @@ app.post("/api/sync-following", async (req, res) => {
 // Main polling router to trigger scanning for newly published repos
 app.post("/api/poll-radar", async (req, res) => {
   const db = readDb();
-  const targets = db.monitored_users;
+  const owner = (db.github_config.owner_username || "").toLowerCase().trim();
+  
+  // Exclude the owner itself from targets list to never return the owner's own repository
+  const targets = (db.monitored_users || []).filter(
+    u => u.github_username.toLowerCase().trim() !== owner
+  );
 
   if (targets.length === 0) {
-    res.json({ success: true, found: 0, message: "Sem alvos de monitorização de momento. Conecte sua conta do GitHub." });
+    res.json({ success: true, found: 0, message: "Sem alvos de monitorização de momento. Sincronize perfis seguidos no GitHub." });
     return;
   }
 
-  addLog("info", `A iniciar varredura automática em ${targets.length} alvos públicos...`);
+  addLog("info", `A iniciar varredura automática em ${targets.length} alvos públicos (excluindo o proprietário @${db.github_config.owner_username})...`);
   
   let newReposFound = 0;
   const token = db.github_config.personal_token;
@@ -590,16 +742,16 @@ app.post("/api/clean-history", (req, res) => {
 
 // Single-Click Live simulator event trigger (Perfect to demonstrate the whole flow effortlessly!)
 app.post("/api/simulate-fast", async (req, res) => {
-  const { username, repo_name, readme } = req.body;
+  const { username, repo_name, readme, mockFiles, mockMetadata } = req.body;
   const db = readDb();
 
   const creator = username || "andrejunqueira1999";
   const name = repo_name || "forge-match-engine";
-  const rContent = readme || `# ${name}\n\nA lightning-fast profile matching system built in Python using pgvector database embeddings, Redis queues, and LLMs for instant candidate routing to matching virtual rooms.`;
+  const rContent = readme !== undefined ? readme : `# ${name}\n\nA lightning-fast profile matching system built in Python using pgvector database embeddings, Redis queues, and LLMs for instant candidate routing to matching virtual rooms.`;
 
   addLog("info", `[SIMULAÇÃO] A disparar evento de novo repositório @${creator}/${name}...`);
 
-  const { summary, tech } = await generateAiSummary(name, creator, rContent);
+  const { summary, tech } = await generateAiSummary(name, creator, rContent, undefined, mockFiles, mockMetadata);
 
   const newId = db.processed_repositories.length > 0 ? Math.max(...db.processed_repositories.map(r => r.id)) + 1 : 1;
   const rId = Math.floor(Math.random() * 90000000) + 10000000;
