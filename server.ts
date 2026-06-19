@@ -722,8 +722,11 @@ async function startServer() {
     });
   }
 
-  app.listen(PORT, "0.0.0.0", () => {
-    console.log(`Radar is up and listening on port ${PORT}`);
+  await new Promise<void>((resolve) => {
+    app.listen(PORT, "0.0.0.0", () => {
+      console.log(`Radar is up and listening on port ${PORT}`);
+      resolve();
+    });
   });
 }
 
