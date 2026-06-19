@@ -855,23 +855,41 @@ app.post("/api/test-telegram-direct", async (req, res) => {
  */
 
 async function startServer() {
-  if (process.env.NODE_ENV !== "production") {
+  const distPath = path.join(process.cwd(), "dist");
+  const isProduction = process.env.NODE_ENV === "production" || fs.existsSync(path.join(distPath, "index.html"));
+
+  if (!isProduction) {
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: "spa"
     });
     app.use(vite.middlewares);
   } else {
-    const distPath = path.join(process.cwd(), "dist");
     app.use(express.static(distPath));
+    // Root route must be registered before the catch-all so it is matched first
+    app.get("/", (req, res) => {
+      res.sendFile(path.join(distPath, "index.html"));
+    });
     app.get("*", (req, res) => {
       res.sendFile(path.join(distPath, "index.html"));
     });
   }
 
-  app.listen(PORT, "0.0.0.0", () => {
-    console.log(`Radar is up and listening on port ${PORT}`);
+  // Wrap app.listen in a Promise so we can await it and confirm the server
+  // is actually bound before logging — prevents the "listening" message from
+  // appearing before the port is ready.
+  await new Promise<void>((resolve, reject) => {
+    const server = app.listen(PORT, "0.0.0.0", () => {
+      console.log(`Radar is up and listening on port ${PORT}`);
+      resolve();
+    });
+    server.on("error", (err) => {
+      reject(err);
+    });
   });
 }
 
-startServer();
+startServer().catch((err) => {
+  console.error("Fatal: server failed to start:", err);
+  process.exit(1);
+});

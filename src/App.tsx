@@ -2,7 +2,6 @@
  * @license
  * SPDX-License-Identifier: Apache-2.0
  */
-
 import React, { useState, useEffect } from "react";
 import { 
   Cpu, 
@@ -268,7 +267,7 @@ export default function App() {
             <div className="flex items-center gap-3 bg-slate-900/60 border border-slate-800 px-3 py-1.5 rounded-xl text-[11px] text-slate-400 font-mono">
               <div className="flex items-center gap-1.5">
                 <span className={`inline-block w-2 h-2 rounded-full ${geminiActive ? "bg-emerald-400 animate-pulse" : "bg-amber-500"}`} />
-                <span>Gemini Inteligente: <strong>{geminiActive ? "Online" : "Demo local"}</strong></span>
+               
               </div>
               <span className="text-slate-800">|</span>
               <div>
@@ -369,7 +368,7 @@ export default function App() {
                   </button>
                 </div>
                 <p className="text-[10px] text-slate-550 leading-relaxed font-sans mt-1">
-                  💡 Altamente recomendado. Permite carregar quem segue instantaneamente e ler novos repositórios sem bloqueios de IP.
+                    Altamente recomendado. Permite carregar quem segue instantaneamente e ler novos repositórios sem bloqueios de IP.
                 </p>
               </div>
             </div>
@@ -489,7 +488,7 @@ export default function App() {
                         onClick={handleTestTelegram}
                         className="text-[10px] text-indigo-400 hover:text-indigo-300 font-mono font-semibold flex items-center gap-1 transition-all"
                       >
-                        ⚡ Testar Ligação Telegram
+                         Testar Ligação Telegram
                       </button>
                     </div>
                   )}
@@ -613,7 +612,6 @@ export default function App() {
               GitHub
             </a>
             <span>•</span>
-            <span className="text-indigo-400">Desenvolvido com Gemini AI Core</span>
           </div>
         </div>
       </footer>
