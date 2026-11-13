@@ -55,7 +55,7 @@ Para encaminhar alertas diretamente ao seu telemóvel pessoal através do WhatsA
 ### 3. Executando a Aplicação Localmente
 A forma mais simples de ver o projeto em ação é através da nossa aplicação web implementada.
 
-URL da Aplicação: https://gitnotification-production.up.railway.app/
+URL da Aplicação: https://gitnotification.onrender.com/
 
 Nota: Por se tratar de um protótipo, a instância pode não estar sempre ativa.
 
@@ -78,9 +78,6 @@ npm run dev
 ```
 
 A aplicação estará disponível em `http://localhost:3000`.
-
-#### Deploy
-Consulte [INSTRUCOES_DEPLOY.md](./INSTRUCOES_DEPLOY.md) para publicar o backend e a interface no Railway e resolver o erro de importação apresentado pelo Vercel.
 
 ---
 
