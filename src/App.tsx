@@ -5,12 +5,14 @@
 import React, { useEffect, useState } from "react";
 import {
   AlertCircle,
+  Clock3,
   Bell,
   Check,
   ChevronLeft,
   ChevronRight,
   ExternalLink,
   Github,
+  KeyRound,
   Loader2,
   MessageCircle,
   RefreshCw,
@@ -24,6 +26,7 @@ import { MonitoredUser, ProcessedRepository, TelegramConfig, WhatsAppConfig } fr
 
 type Channel = "telegram" | "whatsapp";
 type Banner = { type: "success" | "error"; text: string };
+type ApiError = Error & { rateLimit?: boolean; retryAfterMinutes?: number };
 
 interface AppStatus {
   display_name: string;
@@ -56,8 +59,23 @@ const emptyWhatsApp: WhatsAppConfig = {
 const inputClass = "w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 placeholder:text-slate-400";
 
 async function responseError(response: Response, fallback: string): Promise<Error> {
-  const body = await response.json().catch(() => null);
-  return new Error(typeof body?.error === "string" ? body.error : fallback);
+  const body = await response.json().catch(() => null) as {
+    error?: unknown;
+    rate_limit?: unknown;
+    retry_after_minutes?: unknown;
+  } | null;
+  const error = new Error(typeof body?.error === "string" ? body.error : fallback) as ApiError;
+  if (body?.rate_limit === true) {
+    error.rateLimit = true;
+    if (typeof body.retry_after_minutes === "number") {
+      error.retryAfterMinutes = body.retry_after_minutes;
+    }
+  }
+  return error;
+}
+
+function isRateLimitError(error: unknown): error is ApiError {
+  return error instanceof Error && "rateLimit" in error && error.rateLimit === true;
 }
 
 function formatDate(value: string | null): string {
@@ -87,6 +105,7 @@ export default function App() {
   const [pollCount, setPollCount] = useState(0);
   const [lastPoll, setLastPoll] = useState<string | null>(null);
   const [banner, setBanner] = useState<Banner | null>(null);
+  const [rateLimitDialog, setRateLimitDialog] = useState<{ retryAfterMinutes: number | null } | null>(null);
 
   const loadData = async (includeConfig = false) => {
     const [statusResponse, historyResponse, usersResponse] = await Promise.all([
@@ -169,10 +188,15 @@ export default function App() {
         setBanner({ type: "success", text: "Tudo em dia: não há repositórios novos nos últimos 30 dias." });
       }
     } catch (error) {
-      setBanner({
-        type: "error",
-        text: error instanceof Error ? error.message : "Falha de ligação ao executar a varredura."
-      });
+      if (isRateLimitError(error)) {
+        setBanner(null);
+        setRateLimitDialog({ retryAfterMinutes: error.retryAfterMinutes ?? null });
+      } else {
+        setBanner({
+          type: "error",
+          text: error instanceof Error ? error.message : "Falha de ligação ao executar a varredura."
+        });
+      }
     } finally {
       setIsPolling(false);
     }
@@ -267,10 +291,15 @@ export default function App() {
         throw await responseError(monitoringResponse, "Não foi possível guardar a preferência de monitorização.");
       }
     } catch (error) {
-      setBanner({
-        type: "error",
-        text: error instanceof Error ? error.message : "Não foi possível concluir a configuração."
-      });
+      if (isRateLimitError(error)) {
+        setBanner(null);
+        setRateLimitDialog({ retryAfterMinutes: error.retryAfterMinutes ?? null });
+      } else {
+        setBanner({
+          type: "error",
+          text: error instanceof Error ? error.message : "Não foi possível concluir a configuração."
+        });
+      }
     } finally {
       setIsSaving(false);
     }
@@ -329,6 +358,12 @@ export default function App() {
 
   const selectedChannelName = channel === "telegram" ? "Telegram" : "WhatsApp";
   const steps = ["Você", "GitHub", "Notificações"];
+  const openGithubTokenSettings = () => {
+    setRateLimitDialog(null);
+    setBanner(null);
+    setStep(1);
+    setShowWizard(true);
+  };
 
   if (isLoading) {
     return (
@@ -754,6 +789,99 @@ export default function App() {
                 )}
               </div>
             </form>
+          </section>
+        </div>
+      )}
+
+      {rateLimitDialog && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center overflow-y-auto bg-slate-950/60 p-4 backdrop-blur-sm">
+          <section
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="github-rate-limit-title"
+            className="my-auto w-full max-w-lg rounded-2xl bg-white p-6 shadow-2xl sm:p-8"
+          >
+            <div className="mb-5 flex items-start justify-between gap-4">
+              <div className="flex items-center gap-3">
+                <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-amber-100 text-amber-700">
+                  <Clock3 className="h-6 w-6" />
+                </div>
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-wider text-amber-700">Limite temporário</p>
+                  <h2 id="github-rate-limit-title" className="mt-1 text-xl font-bold text-slate-900">
+                    O GitHub pediu uma pausa
+                  </h2>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setRateLimitDialog(null)}
+                aria-label="Fechar aviso"
+                className="rounded-lg p-2 text-slate-500 transition hover:bg-slate-100 hover:text-slate-900"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <p className="mb-5 text-sm leading-6 text-slate-600">
+              Foram feitas muitas consultas à API do GitHub em pouco tempo. Isto não significa necessariamente que o teu
+              usuário ou token estejam errados.
+            </p>
+
+            <div className="space-y-4">
+              <div className="rounded-xl border border-amber-200 bg-amber-50 p-4">
+                <h3 className="flex items-center gap-2 text-sm font-semibold text-amber-900">
+                  <Clock3 className="h-4 w-4" /> Opção A — aguardar
+                </h3>
+                <p className="mt-2 text-sm leading-5 text-amber-900/80">
+                  {rateLimitDialog.retryAfterMinutes
+                    ? `Aguarda cerca de ${rateLimitDialog.retryAfterMinutes} minuto(s) antes de tentar novamente.`
+                    : "Aguarda alguns minutos antes de tentar novamente. O tempo exato depende do limite aplicado pelo GitHub; a cota principal pode demorar até 60 minutos a renovar."}
+                </p>
+              </div>
+
+              <div className="rounded-xl border border-indigo-200 bg-indigo-50 p-4">
+                <h3 className="flex items-center gap-2 text-sm font-semibold text-indigo-950">
+                  <KeyRound className="h-4 w-4" /> Opção B — adicionar um token pessoal
+                </h3>
+                <ol className="mt-2 list-inside list-decimal space-y-1.5 text-sm leading-5 text-indigo-950/80">
+                  <li>
+                    <a
+                      href="https://github.com/settings/tokens/new"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="font-semibold text-indigo-700 underline decoration-indigo-300 underline-offset-2 hover:text-indigo-900"
+                    >
+                      Cria um token pessoal no GitHub
+                    </a>{" "}
+                    para acesso a repositórios públicos.
+                  </li>
+                  <li>Volta à aplicação e abre a etapa 2, «GitHub».</li>
+                  <li>Cola o token no campo «Token de acesso GitHub» e guarda as configurações.</li>
+                </ol>
+                <p className="mt-3 text-xs leading-5 text-indigo-900/70">
+                  Mantém o token privado. Com autenticação, o limite costuma ser maior; se a cota também se esgotar,
+                  será necessário aguardar a renovação.
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+              <button
+                type="button"
+                onClick={() => setRateLimitDialog(null)}
+                className="rounded-xl border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+              >
+                Entendi
+              </button>
+              <button
+                type="button"
+                onClick={openGithubTokenSettings}
+                className="rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-indigo-500"
+              >
+                Configurar token na aplicação
+              </button>
+            </div>
           </section>
         </div>
       )}

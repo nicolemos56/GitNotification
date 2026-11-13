@@ -176,6 +176,26 @@ function addLog(level: "info" | "success" | "warn" | "error" | "ai", message: st
   writeDb(db);
 }
 
+class GitHubApiError extends Error {
+  constructor(
+    message: string,
+    readonly isRateLimit: boolean,
+    readonly retryAfterMinutes?: number
+  ) {
+    super(message);
+    this.name = "GitHubApiError";
+  }
+}
+
+function getRateLimitErrorResponse(error: unknown) {
+  if (!(error instanceof GitHubApiError) || !error.isRateLimit) return null;
+  return {
+    error: "O GitHub atingiu o limite temporário de consultas.",
+    rate_limit: true,
+    retry_after_minutes: error.retryAfterMinutes ?? null
+  };
+}
+
 // GitHub API Fetcher using custom personal token if defined
 async function fetchGithub(url: string, personal_token?: string) {
   const headers: HeadersInit = {
@@ -190,7 +210,34 @@ async function fetchGithub(url: string, personal_token?: string) {
 
   const response = await fetch(url, { headers });
   if (!response.ok) {
-    throw new Error(`GitHub API returned state ${response.status}: ${response.statusText}`);
+    let apiMessage = response.statusText;
+    try {
+      const body = await response.json() as { message?: unknown };
+      if (typeof body.message === "string") apiMessage = body.message;
+    } catch {
+      // Keep the HTTP status text when GitHub does not return a JSON error body.
+    }
+
+    const isRateLimit = response.status === 429
+      || (response.status === 403 && (
+        response.headers.get("x-ratelimit-remaining") === "0"
+        || /rate limit|abuse detection/i.test(apiMessage)
+      ));
+    if (isRateLimit) {
+      const retryAfterSeconds = Number(response.headers.get("retry-after"));
+      const resetAtSeconds = Number(response.headers.get("x-ratelimit-reset"));
+      const retryAfterMinutes = Number.isFinite(retryAfterSeconds) && retryAfterSeconds > 0
+        ? Math.max(1, Math.ceil(retryAfterSeconds / 60))
+        : Number.isFinite(resetAtSeconds) && resetAtSeconds * 1000 > Date.now()
+          ? Math.max(1, Math.ceil((resetAtSeconds * 1000 - Date.now()) / 60_000))
+          : undefined;
+      throw new GitHubApiError(apiMessage, true, retryAfterMinutes);
+    }
+
+    throw new GitHubApiError(
+      `GitHub API returned state ${response.status}: ${apiMessage}`,
+      false
+    );
   }
   return response.json();
 }
@@ -465,6 +512,11 @@ app.post("/api/sync-following", async (req, res) => {
     }
   } catch (err: any) {
     addLog("error", `Falha ao carregar seguidos de @${username}: ${err.message}`);
+    const rateLimitError = getRateLimitErrorResponse(err);
+    if (rateLimitError) {
+      res.status(429).json(rateLimitError);
+      return;
+    }
     res.status(500).json({ error: `Erro na API do GitHub: ${err.message}. Verifique a validade do seu nome de usuário ou token.` });
   }
 });
@@ -549,7 +601,8 @@ app.post("/api/poll-radar", async (req, res) => {
           if (readmeObj?.content) {
             readmeText = Buffer.from(readmeObj.content, "base64").toString("utf-8");
           }
-        } catch {
+        } catch (err) {
+          if (err instanceof GitHubApiError && err.isRateLimit) throw err;
           analysisFailures++;
           addLog("error", `Não foi possível carregar o README de @${tName}/${candidate.name}; análise ignorada.`, db);
           continue;
@@ -623,9 +676,11 @@ app.post("/api/poll-radar", async (req, res) => {
         writeDb(db);
       }
 
-    } catch (err: any) {
-      console.warn(`Could not poll for ${tName}: ${err.message}`);
-      addLog("error", `Falha ao consultar repositórios de @${tName}: ${err.message}`, db);
+    } catch (err) {
+      if (err instanceof GitHubApiError && err.isRateLimit) throw err;
+      const message = err instanceof Error ? err.message : "Erro desconhecido.";
+      console.warn(`Could not poll for ${tName}: ${message}`);
+      addLog("error", `Falha ao consultar repositórios de @${tName}: ${message}`, db);
     }
   }
 
@@ -638,6 +693,11 @@ app.post("/api/poll-radar", async (req, res) => {
     const message = err instanceof Error ? err.message : "Erro desconhecido durante a varredura.";
     console.error("Erro ao concluir a varredura:", err);
     if (!res.headersSent) {
+      const rateLimitError = getRateLimitErrorResponse(err);
+      if (rateLimitError) {
+        res.status(429).json(rateLimitError);
+        return;
+      }
       res.status(500).json({ error: message });
     }
   } finally {
