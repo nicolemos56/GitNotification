@@ -79,6 +79,9 @@ npm run dev
 
 A aplicação estará disponível em `http://localhost:3000`.
 
+#### Deploy
+Consulte [INSTRUCOES_DEPLOY.md](./INSTRUCOES_DEPLOY.md) para publicar o backend e a interface no Railway e resolver o erro de importação apresentado pelo Vercel.
+
 ---
 
 ##  Licença e Direitos

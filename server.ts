@@ -13,7 +13,7 @@ import dotenv from "dotenv";
 dotenv.config();
 
 const app = express();
-const PORT = 3000;
+const PORT = Number(process.env.PORT) || 3000;
 const RECENT_REPOSITORY_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
 const AUTOMATIC_SCAN_INTERVAL_MS = 15 * 60 * 1000;
 const FOLLOWING_SYNC_INTERVAL_MS = 24 * 60 * 60 * 1000;
@@ -34,7 +34,7 @@ function getGroqApiKey(): string | null {
 }
 
 // Database JSON model
-const DB_FILE = path.join(process.cwd(), "gitpulse_db.json");
+const DB_FILE = path.join(process.env.DATA_DIR || process.cwd(), "gitpulse_db.json");
 
 interface DatabaseSchema {
   display_name: string;
@@ -155,6 +155,7 @@ function readDb(): DatabaseSchema {
 
 function writeDb(db: DatabaseSchema): boolean {
   try {
+    fs.mkdirSync(path.dirname(DB_FILE), { recursive: true });
     fs.writeFileSync(DB_FILE, JSON.stringify(db, null, 2));
     return true;
   } catch (err) {
