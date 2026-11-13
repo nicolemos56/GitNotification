@@ -339,7 +339,7 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900">
+    <div className="flex min-h-screen flex-col bg-slate-50 text-slate-900">
       <header className="border-b border-slate-200 bg-white">
         <div className="mx-auto flex max-w-5xl flex-wrap items-center justify-between gap-4 px-4 py-4 sm:px-6">
           <div className="flex items-center gap-3">
@@ -389,7 +389,7 @@ export default function App() {
         </div>
       </header>
 
-      <main className="mx-auto max-w-5xl px-4 py-8 sm:px-6">
+      <main className="mx-auto w-full max-w-5xl flex-1 px-4 py-8 sm:px-6">
         {banner && !showWizard && (
           <div
             role="status"
@@ -501,6 +501,10 @@ export default function App() {
           </div>
         )}
       </main>
+
+      <footer className="border-t border-slate-200 bg-white px-4 py-4 text-center text-xs text-slate-500">
+        Todos © 2026 GitNotificação. Todos os direitos reservados. D´DEUS´DEUS - DDD.
+      </footer>
 
       {showWizard && (
         <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-slate-900/50 p-4 backdrop-blur-sm">
