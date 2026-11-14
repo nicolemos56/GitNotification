@@ -384,7 +384,7 @@ export default function App() {
             <div>
               <h1 className="font-display text-lg font-bold">GitNotification</h1>
               <p className="text-xs text-slate-600">
-                Olá{displayName ? `, ${displayName}` : ""}. Avisaremos no {selectedChannelName} quando surgir um repositório novo.
+                Olá<span>{displayName ? `, ${displayName}` : ""}</span>. Avisaremos no {selectedChannelName} quando surgir um repositório novo.
               </p>
             </div>
           </div>
